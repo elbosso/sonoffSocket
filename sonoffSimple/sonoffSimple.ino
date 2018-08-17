@@ -208,12 +208,26 @@ void setup(void){
   });
   
   server->on("/ein", [](){
-    server->send(200, "text/html", "Schaltsteckdose ausschalten<p><a href=\"aus\">AUS</a></p>");
+    timeClient.update();
+    unsigned long epoch=timeClient.getEpochTime();
+    TimeChangeRule *tcr;
+    time_t utc;
+    utc = epoch;
+    time_t local=CE.toLocal(utc, &tcr);
+    printTimeToBuffer(local,tcr -> abbrev);
+    server->send(200, "text/html",String("")+"Schaltsteckdose ausschalten<p>"+timestrbuf+"</p><p><a href=\"aus\">AUS</a></p>");
     doSwitchOn();
   });
   
   server->on("/aus", [](){
-    server->send(200, "text/html", "Schaltsteckdose einschalten<p><a href=\"ein\">EIN</a></p>");
+    timeClient.update();
+    unsigned long epoch=timeClient.getEpochTime();
+    TimeChangeRule *tcr;
+    time_t utc;
+    utc = epoch;
+    time_t local=CE.toLocal(utc, &tcr);
+    printTimeToBuffer(local,tcr -> abbrev);
+    server->send(200, "text/html", String("")+"Schaltsteckdose einschalten<p>"+timestrbuf+"</p><p><a href=\"ein\">EIN</a></p>");
     doSwitchOff();
   });
   digitalWrite(gpio13Led, HIGH);
@@ -294,7 +308,13 @@ void loop(void)
 } 
 void printTimeToBuffer(time_t t, char *tz)
 {
-  sprintf(timestrbuf,"%02d:%02d:%02d %s %02d %s %d %s",hour(t),minute(t),second(t),dayShortStr(weekday(t)),day(t),monthShortStr(month(t)),year(t),tz);
+  //this is needed because dayShortStr and monthShortStr obviously use the same buffer so we get
+  //20:30:59 Aug 17 Aug 2018 CEST
+  //instead of 
+  //20:30:59 Fri 17 Aug 2018 CEST
+  //if we dont do this!
+  String wd(dayShortStr(weekday(t)));
+  sprintf(timestrbuf,"%02d:%02d:%02d %s %02d %s %d %s",hour(t),minute(t),second(t),wd.c_str(),day(t),monthShortStr(month(t)),year(t),tz);
 }
 //https://www.arduinoslovakia.eu/blog/2017/7/esp8266---ntp-klient-a-letny-cas?lang=en
 //Function to print time with time zone
