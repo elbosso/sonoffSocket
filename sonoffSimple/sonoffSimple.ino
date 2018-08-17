@@ -10,6 +10,10 @@
 #include <DNSServer.h>
 //#include <ESP8266WebServer.h>
 #include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+#include <TimeLib.h>
+#include <Timezone.h>    // https://github.com/JChristensen/Timezone
 
 
 //Your Wifi SSID
@@ -25,6 +29,23 @@ int gpio0Switch = 0;
 
 bool lamp = 0;
 bool relais = 0;
+
+unsigned long previousMillis = 0;
+
+WiFiUDP ntpUDP;
+
+// By default 'pool.ntp.org' is used with 60 seconds update interval and
+// no offset
+NTPClient timeClient(ntpUDP);
+
+// You can specify the time server pool and the offset, (in seconds)
+// additionaly you can specify the update interval (in milliseconds).
+// NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 3600, 60000);
+
+// Central European Time (Frankfurt, Paris)
+TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};     // Central European Summer Time
+TimeChangeRule CET = {"CET ", Last, Sun, Oct, 3, 60};       // Central European Standard Time
+Timezone CE(CEST, CET);
 
 bool startWPSPBC() {
 // from https://gist.github.com/copa2/fcc718c6549721c210d614a325271389
@@ -195,9 +216,39 @@ void setup(void){
   server->begin();
   Serial.println("HTTP server started");
   
+    
+  timeClient.begin();
+  Serial.println("NTP client started");
+  timeClient.update();
+  Serial.println(timeClient.getFormattedTime());
+  unsigned long epoch=timeClient.getEpochTime();
+  Serial.println(epoch);
+
+    TimeChangeRule *tcr;
+    time_t utc;
+    utc = epoch;
+
+    printTime(utc, "UTC", "Universal Coordinated Time");
+    printTime(CE.toLocal(utc, &tcr), tcr -> abbrev, "Bratislava");
+    time_t local=CE.toLocal(utc, &tcr);
+    Serial.println(local);
+    time_t tenmin=10*60;
+    time_t massaged=(local/tenmin)*tenmin;
+    printTime(massaged, tcr -> abbrev, "tenner");
 }
-void loop(void){
-if(digitalRead(gpio0Switch) == LOW)
+void loop(void)
+{
+  unsigned long currentMillis = millis();
+  if(currentMillis - previousMillis >= 1000)
+  {
+  
+  timeClient.update();
+
+//  Serial.println(timeClient.getFormattedTime());
+    previousMillis=currentMillis;
+  }  
+
+  if(digitalRead(gpio0Switch) == LOW)
 
   {
     if(relais == 0){
@@ -210,3 +261,41 @@ if(digitalRead(gpio0Switch) == LOW)
   //Webserver 
   server->handleClient();
 } 
+//https://www.arduinoslovakia.eu/blog/2017/7/esp8266---ntp-klient-a-letny-cas?lang=en
+//Function to print time with time zone
+void printTime(time_t t, char *tz, char *loc)
+{
+  sPrintI00(hour(t));
+  sPrintDigits(minute(t));
+  sPrintDigits(second(t));
+  Serial.print(' ');
+  Serial.print(dayShortStr(weekday(t)));
+  Serial.print(' ');
+  sPrintI00(day(t));
+  Serial.print(' ');
+  Serial.print(monthShortStr(month(t)));
+  Serial.print(' ');
+  Serial.print(year(t));
+  Serial.print(' ');
+  Serial.print(tz);
+  Serial.print(' ');
+  Serial.print(loc);
+  Serial.println();
+}
+//Print an integer in "00" format (with leading zero).
+//Input value assumed to be between 0 and 99.
+void sPrintI00(int val)
+{
+  if (val < 10) Serial.print('0');
+  Serial.print(val, DEC);
+  return;
+}
+
+//Print an integer in ":00" format (with leading zero).
+//Input value assumed to be between 0 and 99.
+void sPrintDigits(int val)
+{
+  Serial.print(':');
+  if (val < 10) Serial.print('0');
+  Serial.print(val, DEC);
+}
