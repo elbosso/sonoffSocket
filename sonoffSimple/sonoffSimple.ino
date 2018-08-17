@@ -14,7 +14,7 @@
 #include <WiFiUdp.h>
 #include <TimeLib.h>
 #include <Timezone.h>    // https://github.com/JChristensen/Timezone
-
+#include <stdio.h>
 
 //Your Wifi SSID
 const char* ssid = "your_ssid";
@@ -36,7 +36,7 @@ WiFiUDP ntpUDP;
 
 // By default 'pool.ntp.org' is used with 60 seconds update interval and
 // no offset
-NTPClient timeClient(ntpUDP);
+NTPClient timeClient(ntpUDP,"192.168.10.2");
 
 // You can specify the time server pool and the offset, (in seconds)
 // additionaly you can specify the update interval (in milliseconds).
@@ -46,6 +46,9 @@ NTPClient timeClient(ntpUDP);
 TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};     // Central European Summer Time
 TimeChangeRule CET = {"CET ", Last, Sun, Oct, 3, 60};       // Central European Standard Time
 Timezone CE(CEST, CET);
+
+char timestrbuf[100];
+
 
 bool startWPSPBC() {
 // from https://gist.github.com/copa2/fcc718c6549721c210d614a325271389
@@ -94,6 +97,8 @@ void setup(void){
   Serial.begin(115200); 
   delay(5000);
   Serial.println("");
+//  pinMode(D0, WAKEUP_PULLUP);
+
  
   WiFi.persistent(false);
   WiFi.mode(WIFI_OFF);
@@ -235,7 +240,33 @@ void setup(void){
     time_t tenmin=10*60;
     time_t massaged=(local/tenmin)*tenmin;
     printTime(massaged, tcr -> abbrev, "tenner");
-}
+    massaged=massaged+tenmin+8*60;
+
+
+    printTimeToBuffer(local,tcr -> abbrev);
+    Serial.println(timestrbuf);
+/*      pinMode(BUILTIN_LED, OUTPUT);
+  // Connect D0 to RST to wake up
+  pinMode(D0, WAKEUP_PULLUP);
+  // LED: LOW = on, HIGH = off
+  Serial.println("Start blinking");
+  for (int i = 0; i < 20; i++) {
+    digitalWrite(BUILTIN_LED, LOW);
+    delay(100);
+    digitalWrite(BUILTIN_LED, HIGH);
+    delay(100);
+  }
+  Serial.println("Stop blinking");
+  Serial.printf("Sleep for %d seconds\n\n", 5);
+  // convert to microseconds
+  ESP.deepSleep(5 * 1000000);
+  Serial.println("sleep finished");
+*/
+/*    Serial.print("Going into deep sleep - waking up at: ");
+    printTime(massaged, tcr -> abbrev, "wake up");
+    Serial.println(massaged-local);
+    ESP.deepSleep((massaged-local)*1e06); // 20e6 is 20 microseconds
+*/}
 void loop(void)
 {
   unsigned long currentMillis = millis();
@@ -261,6 +292,10 @@ void loop(void)
   //Webserver 
   server->handleClient();
 } 
+void printTimeToBuffer(time_t t, char *tz)
+{
+  sprintf(timestrbuf,"%02d:%02d:%02d %s %02d %s %d %s",hour(t),minute(t),second(t),dayShortStr(weekday(t)),day(t),monthShortStr(month(t)),year(t),tz);
+}
 //https://www.arduinoslovakia.eu/blog/2017/7/esp8266---ntp-klient-a-letny-cas?lang=en
 //Function to print time with time zone
 void printTime(time_t t, char *tz, char *loc)
