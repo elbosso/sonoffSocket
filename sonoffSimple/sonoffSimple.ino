@@ -36,7 +36,7 @@ WiFiUDP ntpUDP;
 
 // By default 'pool.ntp.org' is used with 60 seconds update interval and
 // no offset
-NTPClient timeClient(ntpUDP,"192.168.10.2");
+NTPClient timeClient(ntpUDP,"2.de.pool.ntp.org");
 
 // You can specify the time server pool and the offset, (in seconds)
 // additionaly you can specify the update interval (in milliseconds).
