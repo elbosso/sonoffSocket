@@ -17,12 +17,26 @@
 #include <TimeLib.h>
 #include <Timezone.h>    // https://github.com/JChristensen/Timezone
 #include <stdio.h>
+#include <string.h>
+
 
 extern "C" {
   #include "user_interface.h"
 }
 
 #include "wifi_security.h"
+
+//To use MQTT, install Library "PubSubClient" and switch next line to 1
+#define USE_MQTT 1
+
+#if USE_MQTT == 1
+  #include <PubSubClient.h>
+  //Your MQTT Broker
+  char mqtt_in_topic[1024];
+  char mqtt_out_topic[1024];
+  
+#endif
+
 
 ESP8266WebServer* server;
 
@@ -51,6 +65,12 @@ TimeChangeRule CET = {"CET ", Last, Sun, Oct, 3, 60};       // Central European 
 Timezone CE(CEST, CET);
 
 char timestrbuf[100];
+
+#if USE_MQTT == 1
+  WiFiClient espClient;
+  PubSubClient client(espClient);
+  bool status_mqtt = 1;
+#endif
 
 
 bool startWPSPBC() {
@@ -205,6 +225,15 @@ void setup(void){
   Serial.print("IP-Adresse: ");
   Serial.println(WiFi.localIP());
 
+#if USE_MQTT == 1  
+  snprintf(mqtt_in_topic,1023,"%s/switch/set",hostname);
+  Serial.println(mqtt_in_topic);
+  snprintf(mqtt_out_topic,1023,"%s/switch/status",hostname);
+  Serial.println(mqtt_out_topic);
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(MqttCallback);
+#endif
+
   server=new ESP8266WebServer(80);
 
 
@@ -302,6 +331,7 @@ void loop(void)
   if(digitalRead(gpio0Switch) == LOW)
 
   {
+    Serial.println("Button pressed!");
     if(relais == 0){
       doSwitchOn();
     }else{
@@ -311,7 +341,74 @@ void loop(void)
   }
   //Webserver 
   server->handleClient();
+  #if USE_MQTT == 1
+//MQTT
+   if (!client.connected()) {
+    MqttReconnect();
+   }
+   if (client.connected()) {
+    MqttStatePublish();
+   }
+  client.loop();
+#endif  
+
 } 
+#if USE_MQTT == 1
+void MqttCallback(char* topic, byte* payload, unsigned int length) {
+  Serial.println("got mqtt topic");
+  Serial.println(topic);
+  Serial.println((char *)payload);
+  // Switch on
+  if ((char)payload[0] == '1') {
+    doSwitchOn();
+  //Switch off
+  } else {
+    doSwitchOff();
+  }
+
+}
+
+void MqttReconnect() {
+  String clientID = "SonoffSocket_"; // 13 chars
+  clientID += WiFi.macAddress();//17 chars
+
+  while (!client.connected()) {
+    Serial.print("Connect to MQTT-Broker");
+    if (client.connect(clientID.c_str(),mqtt_user,mqtt_pass)) {
+      Serial.print("connected as clientID:");
+      Serial.println(clientID);
+      //publish ready
+      client.publish(mqtt_out_topic, "mqtt client ready");
+      //subscribe in topic
+      Serial.println("subscribing to ");
+      Serial.println(mqtt_in_topic);
+      client.subscribe(mqtt_in_topic);
+    } else {
+      Serial.print("failed: ");
+      Serial.print(client.state());
+      Serial.println(" try again...");
+      delay(5000);
+    }
+  }
+}
+
+void MqttStatePublish() {
+  if (relais == 1 and not status_mqtt)
+     {
+      status_mqtt = relais;
+      client.publish(mqtt_out_topic, "on");
+      Serial.println("MQTT publish: on");
+     }
+  if (relais == 0 and status_mqtt)
+     {
+      status_mqtt = relais;
+      client.publish(mqtt_out_topic, "off");
+      Serial.println("MQTT publish: off");
+     }
+}
+
+#endif
+
 void printTimeToBuffer(time_t t, char *tz)
 {
   //this is needed because dayShortStr and monthShortStr obviously use the same buffer so we get
