@@ -14,10 +14,9 @@
 #include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager
 #include <NTPClient.h>
 #include <WiFiUdp.h>
-#include <TimeLib.h>
-#include <Timezone.h>    // https://github.com/JChristensen/Timezone
 #include <stdio.h>
 #include <string.h>
+#include "FS.h"
 
 
 extern "C" {
@@ -50,21 +49,6 @@ bool relais = 0;
 unsigned long previousMillis = 0;
 
 WiFiUDP ntpUDP;
-
-// By default 'pool.ntp.org' is used with 60 seconds update interval and
-// no offset
-NTPClient timeClient(ntpUDP,"2.de.pool.ntp.org");
-
-// You can specify the time server pool and the offset, (in seconds)
-// additionaly you can specify the update interval (in milliseconds).
-// NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 3600, 60000);
-
-// Central European Time (Frankfurt, Paris)
-TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};     // Central European Summer Time
-TimeChangeRule CET = {"CET ", Last, Sun, Oct, 3, 60};       // Central European Standard Time
-Timezone CE(CEST, CET);
-
-char timestrbuf[100];
 
 #if USE_MQTT == 1
   WiFiClient espClient;
@@ -128,8 +112,10 @@ const char CONFIG_HTML[] =
 "<FORM action=\"/config\" method=\"post\">"
 "<P>"
 "SWITCH<br>"
-"<INPUT type=\"radio\" name=\"SWITCH\" value=\"1\">On<BR>"
-"<INPUT type=\"radio\" name=\"SWITCH\" value=\"0\">Off<BR>"
+//"<INPUT type=\"radio\" name=\"SWITCH\" value=\"1\">On<BR>"
+//"<INPUT type=\"radio\" name=\"SWITCH\" value=\"0\">Off<BR>"
+"<INPUT name=\"in_topic\" value=\"\">Topic (empfangen)<BR>"
+"<INPUT name=\"out_topic\" value=\"\">Topic (senden)<BR>"
 "<INPUT type=\"submit\" value=\"Send\"> <INPUT type=\"reset\">"
 "</P>"
 "</FORM>"
@@ -138,7 +124,7 @@ const char CONFIG_HTML[] =
 
 void handleConfig()
 {
-  if (server->hasArg("SWITCH")) {
+  if ((server->hasArg("in_topic"))&&(server->hasArg("out_topic"))) {
     handleSubmit();
   }
   else {
@@ -148,21 +134,35 @@ void handleConfig()
 
 void handleSubmit()
 {
-  String SWITCHvalue;
+  String invalue;
+  String outvalue;
 
-  if (!server->hasArg("SWITCH")) return returnFail("BAD ARGS");
-  SWITCHvalue = server->arg("SWITCH");
-  if (SWITCHvalue == "1") {
-    doSwitchOn();
-    server->send(200, "text/html", CONFIG_HTML);
+  if (!server->hasArg("in_topic")) return returnFail("BAD ARGS");
+  if (!server->hasArg("out_topic")) return returnFail("BAD ARGS");
+  invalue = server->arg("in_topic");
+  outvalue = server->arg("out_topic");
+
+  // open file for writing
+  File f = SPIFFS.open("/in_topic.txt", "w");
+  if (!f) {
+      Serial.println("file /in_topic.txt open failed");
   }
-  else if (SWITCHvalue == "0") {
-    doSwitchOff();
-    server->send(200, "text/html", CONFIG_HTML);
+  Serial.println("====== Writing to SPIFFS file =========");
+  f.println(invalue.c_str());
+  f.close();
+
+  f = SPIFFS.open("/out_topic.txt", "w");
+  if (!f) {
+      Serial.println("file /out_topic.txt open failed");
   }
-  else {
-    returnFail("Bad SWITCH value");
-  }
+  Serial.println("====== Writing to SPIFFS file =========");
+  f.println(outvalue.c_str());
+  f.close();
+  snprintf(mqtt_out_topic,1023,"%s/%s",hostname,outvalue.c_str());
+  snprintf(mqtt_in_topic,1023,"%s/%s",hostname,invalue.c_str());
+#if USE_MQTT == 1
+  client.disconnect();
+#endif
 }
 
 void returnFail(String msg)
@@ -176,7 +176,24 @@ void setup(void){
   Serial.begin(115200); 
   delay(5000);
   Serial.println("");
-//  pinMode(D0, WAKEUP_PULLUP);
+  SPIFFS.begin();
+/*  // open file for writing
+  File f = SPIFFS.open("/in_topic.txt", "w");
+  if (!f) {
+      Serial.println("file /in_topic.txt open failed");
+  }
+  Serial.println("====== Writing to SPIFFS file =========");
+  f.println("a");
+  f.close();
+
+  f = SPIFFS.open("/out_topic.txt", "w");
+  if (!f) {
+      Serial.println("file /out_topic.txt open failed");
+  }
+  Serial.println("====== Writing to SPIFFS file =========");
+  f.println("b");
+  f.close();
+*///  pinMode(D0, WAKEUP_PULLUP);
 
 //  WiFi.hostname(hostname);
   WiFi.persistent(false);
@@ -282,9 +299,45 @@ void setup(void){
   Serial.println(WiFi.localIP());
 
 #if USE_MQTT == 1  
-  snprintf(mqtt_in_topic,1023,"%s/switch/set",hostname);
+  File fr = SPIFFS.open("/in_topic.txt", "r");
+  if(fr!=NULL)
+  {
+    if(fr.available())
+    {
+    String line = fr.readStringUntil('\n');
+    line.trim();
+ //   Serial.println(line);
+    Serial.println(line.c_str());
+    snprintf(mqtt_in_topic,1023,"%s/%s",hostname,line.c_str());
+    }
+    fr.close();
+  }
+  else
+  {
+    Serial.println("file /in_topic.txt not found!");
+    snprintf(mqtt_in_topic,1023,"%s/switch/set",hostname);
+  }
+  fr = SPIFFS.open("/out_topic.txt", "r");
+  if(fr!=NULL)
+  {
+    if(fr.available())
+    {
+    String line = fr.readStringUntil('\n');
+    line.trim();
+ //   Serial.println(line);
+    Serial.println(line.c_str());
+    snprintf(mqtt_out_topic,1023,"%s/%s",hostname,line.c_str());
+    }
+    fr.close();
+  }
+  else
+  {
+    Serial.println("file /out_topic.txt not found!");
+    snprintf(mqtt_out_topic,1023,"%s/switch/status",hostname);
+  }
+  Serial.println(strlen(mqtt_in_topic));
+  Serial.println(strlen(mqtt_out_topic));
   Serial.println(mqtt_in_topic);
-  snprintf(mqtt_out_topic,1023,"%s/switch/status",hostname);
   Serial.println(mqtt_out_topic);
   client.setServer(mqtt_server, 1883);
   client.setCallback(MqttCallback);
@@ -299,38 +352,17 @@ void setup(void){
   });
   
   server->on("/ein", [](){
-    timeClient.update();
-    unsigned long epoch=timeClient.getEpochTime();
-    TimeChangeRule *tcr;
-    time_t utc;
-    utc = epoch;
-    time_t local=CE.toLocal(utc, &tcr);
-    printTimeToBuffer(local,tcr -> abbrev);
-    server->send(200, "text/html",String("")+"Schaltsteckdose ausschalten<p>"+timestrbuf+"</p><p><a href=\"aus\">AUS</a></p>");
+    server->send(200, "text/html",String("")+"<h1>Schaltsteckdose ausschalten</h1><p><a href=\"aus\">AUS</a></p>");
     doSwitchOn();
   });
   
   server->on("/aus", [](){
-    timeClient.update();
-    unsigned long epoch=timeClient.getEpochTime();
-    TimeChangeRule *tcr;
-    time_t utc;
-    utc = epoch;
-    time_t local=CE.toLocal(utc, &tcr);
-    printTimeToBuffer(local,tcr -> abbrev);
-    server->send(200, "text/html", String("")+"Schaltsteckdose einschalten<p>"+timestrbuf+"</p><p><a href=\"ein\">EIN</a></p>");
+    server->send(200, "text/html", String("")+"<h1>Schaltsteckdose einschalten</h1><p><a href=\"ein\">EIN</a></p>");
     doSwitchOff();
   });
 
   server->on("/toggle", [](){
-    timeClient.update();
-    unsigned long epoch=timeClient.getEpochTime();
-    TimeChangeRule *tcr;
-    time_t utc;
-    utc = epoch;
-    time_t local=CE.toLocal(utc, &tcr);
-    printTimeToBuffer(local,tcr -> abbrev);
-    server->send(200, "text/html", String("")+"Schaltsteckdose schalten<p>"+timestrbuf+"</p><p><a href=\"toggle\">WECHSELN</a></p>");
+    server->send(200, "text/html", String("")+"<h1>Schaltsteckdose schalten</h1><p><a href=\"toggle\">WECHSELN</a></p>");
     if(relais == 0){
       doSwitchOn();
     }
@@ -347,29 +379,6 @@ void setup(void){
   Serial.println("HTTP server started");
   
     
-  timeClient.begin();
-  Serial.println("NTP client started");
-  timeClient.update();
-  Serial.println(timeClient.getFormattedTime());
-  unsigned long epoch=timeClient.getEpochTime();
-  Serial.println(epoch);
-
-    TimeChangeRule *tcr;
-    time_t utc;
-    utc = epoch;
-
-    printTime(utc, "UTC", "Universal Coordinated Time");
-    printTime(CE.toLocal(utc, &tcr), tcr -> abbrev, "Bratislava");
-    time_t local=CE.toLocal(utc, &tcr);
-    Serial.println(local);
-    time_t tenmin=10*60;
-    time_t massaged=(local/tenmin)*tenmin;
-    printTime(massaged, tcr -> abbrev, "tenner");
-    massaged=massaged+tenmin+8*60;
-
-
-    printTimeToBuffer(local,tcr -> abbrev);
-    Serial.println(timestrbuf);
 /*      pinMode(BUILTIN_LED, OUTPUT);
   // Connect D0 to RST to wake up
   pinMode(D0, WAKEUP_PULLUP);
@@ -394,16 +403,6 @@ void setup(void){
 */}
 void loop(void)
 {
-  unsigned long currentMillis = millis();
-  if(currentMillis - previousMillis >= 1000)
-  {
-  
-  timeClient.update();
-
-//  Serial.println(timeClient.getFormattedTime());
-    previousMillis=currentMillis;
-  }  
-
   if(digitalRead(gpio0Switch) == LOW)
 
   {
@@ -447,8 +446,9 @@ void MqttCallback(char* topic, byte* payload, unsigned int length) {
 void MqttReconnect() {
   String clientID = "SonoffSocket_"; // 13 chars
   clientID += WiFi.macAddress();//17 chars
+  int count=5;
 
-  while (!client.connected()) {
+  while ((!client.connected())&&(--count>0)) {
     Serial.print("Connect to MQTT-Broker");
     if (client.connect(clientID.c_str(),mqtt_user,mqtt_pass)) {
       Serial.print("connected as clientID:");
@@ -463,7 +463,7 @@ void MqttReconnect() {
       Serial.print("failed: ");
       Serial.print(client.state());
       Serial.println(" try again...");
-      delay(5000);
+      delay(2000);
     }
   }
 }
@@ -473,7 +473,9 @@ void MqttStatePublish() {
      {
       status_mqtt = relais;
       client.publish(mqtt_out_topic, "on");
-      Serial.println("MQTT publish: on");
+      Serial.print("MQTT publish - topic: ");
+      Serial.print(mqtt_out_topic);
+      Serial.println(": on");
      }
   if (relais == 0 and status_mqtt)
      {
@@ -485,51 +487,3 @@ void MqttStatePublish() {
 
 #endif
 
-void printTimeToBuffer(time_t t, char *tz)
-{
-  //this is needed because dayShortStr and monthShortStr obviously use the same buffer so we get
-  //20:30:59 Aug 17 Aug 2018 CEST
-  //instead of 
-  //20:30:59 Fri 17 Aug 2018 CEST
-  //if we dont do this!
-  String wd(dayShortStr(weekday(t)));
-  sprintf(timestrbuf,"%02d:%02d:%02d %s %02d %s %d %s",hour(t),minute(t),second(t),wd.c_str(),day(t),monthShortStr(month(t)),year(t),tz);
-}
-//https://www.arduinoslovakia.eu/blog/2017/7/esp8266---ntp-klient-a-letny-cas?lang=en
-//Function to print time with time zone
-void printTime(time_t t, char *tz, char *loc)
-{
-  sPrintI00(hour(t));
-  sPrintDigits(minute(t));
-  sPrintDigits(second(t));
-  Serial.print(' ');
-  Serial.print(dayShortStr(weekday(t)));
-  Serial.print(' ');
-  sPrintI00(day(t));
-  Serial.print(' ');
-  Serial.print(monthShortStr(month(t)));
-  Serial.print(' ');
-  Serial.print(year(t));
-  Serial.print(' ');
-  Serial.print(tz);
-  Serial.print(' ');
-  Serial.print(loc);
-  Serial.println();
-}
-//Print an integer in "00" format (with leading zero).
-//Input value assumed to be between 0 and 99.
-void sPrintI00(int val)
-{
-  if (val < 10) Serial.print('0');
-  Serial.print(val, DEC);
-  return;
-}
-
-//Print an integer in ":00" format (with leading zero).
-//Input value assumed to be between 0 and 99.
-void sPrintDigits(int val)
-{
-  Serial.print(':');
-  if (val < 10) Serial.print('0');
-  Serial.print(val, DEC);
-}
