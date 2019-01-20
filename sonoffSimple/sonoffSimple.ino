@@ -116,6 +116,62 @@ void toggle()
     }
 }
 
+const char CONFIG_HTML[] =
+"<!DOCTYPE HTML>"
+"<html>"
+"<head>"
+"<meta name = \"viewport\" content = \"width = device-width, initial-scale = 1.0, maximum-scale = 1.0, user-scalable=0\">"
+"<title>Socket Configuration</title>"
+"</head>"
+"<body>"
+"<h1>Socket Configuration</h1>"
+"<FORM action=\"/config\" method=\"post\">"
+"<P>"
+"SWITCH<br>"
+"<INPUT type=\"radio\" name=\"SWITCH\" value=\"1\">On<BR>"
+"<INPUT type=\"radio\" name=\"SWITCH\" value=\"0\">Off<BR>"
+"<INPUT type=\"submit\" value=\"Send\"> <INPUT type=\"reset\">"
+"</P>"
+"</FORM>"
+"</body>"
+"</html>";
+
+void handleConfig()
+{
+  if (server->hasArg("SWITCH")) {
+    handleSubmit();
+  }
+  else {
+    server->send(200, "text/html", CONFIG_HTML);
+  }
+}
+
+void handleSubmit()
+{
+  String SWITCHvalue;
+
+  if (!server->hasArg("SWITCH")) return returnFail("BAD ARGS");
+  SWITCHvalue = server->arg("SWITCH");
+  if (SWITCHvalue == "1") {
+    doSwitchOn();
+    server->send(200, "text/html", CONFIG_HTML);
+  }
+  else if (SWITCHvalue == "0") {
+    doSwitchOff();
+    server->send(200, "text/html", CONFIG_HTML);
+  }
+  else {
+    returnFail("Bad SWITCH value");
+  }
+}
+
+void returnFail(String msg)
+{
+  server->sendHeader("Connection", "close");
+  server->sendHeader("Access-Control-Allow-Origin", "*");
+  server->send(500, "text/plain", msg + "\r\n");
+}
+
 void setup(void){
   Serial.begin(115200); 
   delay(5000);
@@ -265,6 +321,26 @@ void setup(void){
     server->send(200, "text/html", String("")+"Schaltsteckdose einschalten<p>"+timestrbuf+"</p><p><a href=\"ein\">EIN</a></p>");
     doSwitchOff();
   });
+
+  server->on("/toggle", [](){
+    timeClient.update();
+    unsigned long epoch=timeClient.getEpochTime();
+    TimeChangeRule *tcr;
+    time_t utc;
+    utc = epoch;
+    time_t local=CE.toLocal(utc, &tcr);
+    printTimeToBuffer(local,tcr -> abbrev);
+    server->send(200, "text/html", String("")+"Schaltsteckdose schalten<p>"+timestrbuf+"</p><p><a href=\"toggle\">WECHSELN</a></p>");
+    if(relais == 0){
+      doSwitchOn();
+    }
+    else
+    {
+      doSwitchOff();
+    }
+  });
+  server->on("/config", handleConfig);
+  
   digitalWrite(gpio13Led, HIGH);
   delay(300);
   server->begin();
