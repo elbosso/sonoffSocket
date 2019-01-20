@@ -1,6 +1,8 @@
 // Very simple example sketch for Sonoff switch as described in article "Bastelfreundlich". This sketch is just for learning purposes.
 // For productive use (with MQTT and advanced features) we recommend SonoffSocket.ino in this repository.
 
+//#define REGELBETRIEB 1
+
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
@@ -16,10 +18,11 @@
 #include <Timezone.h>    // https://github.com/JChristensen/Timezone
 #include <stdio.h>
 
-//Your Wifi SSID
-const char* ssid = "your_ssid";
-//Your Wifi Key
-const char* password = "your_key";
+extern "C" {
+  #include "user_interface.h"
+}
+
+#include "wifi_security.h"
 
 ESP8266WebServer* server;
 
@@ -99,13 +102,16 @@ void setup(void){
   Serial.println("");
 //  pinMode(D0, WAKEUP_PULLUP);
 
- 
+//  WiFi.hostname(hostname);
   WiFi.persistent(false);
   WiFi.mode(WIFI_OFF);
   WiFi.mode(WIFI_STA);
+#ifdef REGELBETRIEB
   WiFi.begin(WiFi.SSID().c_str(),WiFi.psk().c_str()); // reading data from EPROM, (last saved credentials)
-//  WiFi.begin("foobar",WiFi.psk().c_str()); // making sure access point and if not configured in time (180 sec), wps happen
- 
+#else
+  WiFi.begin(wifi_ssid,wifi_pwd); // reading data from EPROM, (last saved credentials)
+#endif
+ wifi_station_set_hostname(hostname);
   pinMode(gpio13Led, OUTPUT);
   digitalWrite(gpio13Led, lamp);
   
