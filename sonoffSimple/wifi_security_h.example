@@ -1,0 +1,16 @@
+#ifndef WIFISECURITY_H
+#define WIFISECURITY_H
+
+char wifi_ssid[]="<wifi_ssid>";
+char wifi_pwd[]="<wifi_pwd>";
+char wifi_ssid_cell_ap[]="<wifi_ssid_cell_ap>";
+char wifi_pwd_cell_ap[]="<wifi_pwd_cell_ap>";
+
+char hostname[]="<hostname>";
+
+const char* mqtt_server = "<mqtt_broker>";
+const char* mqtt_user = "<mqrr_user>";
+const char* mqtt_pass = "<mqtt_pwd>";
+
+
+#endif /* WIFISECURITY_H */

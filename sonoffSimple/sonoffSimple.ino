@@ -126,6 +126,7 @@ void handleConfig()
 {
   if ((server->hasArg("in_topic"))&&(server->hasArg("out_topic"))) {
     handleSubmit();
+    server->send(200, "text/html", CONFIG_HTML);
   }
   else {
     server->send(200, "text/html", CONFIG_HTML);
@@ -372,7 +373,12 @@ void setup(void){
     }
   });
   server->on("/config", handleConfig);
+  server->on("/topics", [](){
+    server->send(200, "text/html",String(mqtt_in_topic)+" "+String(mqtt_out_topic));
+    doSwitchOn();
+  });
   
+ 
   digitalWrite(gpio13Led, HIGH);
   delay(300);
   server->begin();
@@ -430,25 +436,29 @@ void loop(void)
 } 
 #if USE_MQTT == 1
 void MqttCallback(char* topic, byte* payload, unsigned int length) {
-  Serial.println("got mqtt topic");
-  Serial.println(topic);
-  Serial.println((char *)payload);
-  // Switch on
-  if ((char)payload[0] == '1') {
-    doSwitchOn();
-  //Switch off
-  } else {
-    doSwitchOff();
-  }
-
+    Serial.print("Received message [");
+    Serial.print(topic);
+    Serial.print("] ");
+    Serial.print("Received payload [");
+    Serial.print((char *)payload);
+    Serial.print("] ");
+//    if(strcmp(topic,mqtt_in_topic)==0){
+      // Switch on
+      if ((char)payload[0] == '1') {
+        doSwitchOn();
+      //Switch off
+      } else {
+        doSwitchOff();
+      }
+ //   }
 }
 
 void MqttReconnect() {
   String clientID = "SonoffSocket_"; // 13 chars
-  clientID += WiFi.macAddress();//17 chars
+  clientID += WiFi.localIP().toString();//17 chars
   int count=5;
 
-  while ((!client.connected())&&(--count>0)) {
+  if ((!client.connected())&&(--count>0)) {
     Serial.print("Connect to MQTT-Broker");
     if (client.connect(clientID.c_str(),mqtt_user,mqtt_pass)) {
       Serial.print("connected as clientID:");
@@ -456,15 +466,18 @@ void MqttReconnect() {
       //publish ready
       client.publish(mqtt_out_topic, "mqtt client ready");
       //subscribe in topic
-      Serial.println("subscribing to ");
-      Serial.println(mqtt_in_topic);
-      client.subscribe(mqtt_in_topic);
     } else {
       Serial.print("failed: ");
       Serial.print(client.state());
       Serial.println(" try again...");
       delay(2000);
     }
+  }
+  if(client.connected())
+  {
+      Serial.println("subscribing to ");
+      Serial.println(mqtt_in_topic);
+      client.subscribe(mqtt_in_topic);
   }
 }
 
